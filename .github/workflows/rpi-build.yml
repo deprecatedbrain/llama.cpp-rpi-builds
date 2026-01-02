@@ -63,7 +63,7 @@ jobs:
 
       - name: Configure CMake (Cross-Compile)
         run: |
-          mkdir build
+          mkdir -p build
           cd build
           
           cmake .. \
@@ -73,6 +73,7 @@ jobs:
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DGGML_NATIVE=OFF \
             -DGGML_OPENMP=ON \
+            -DLLAMA_CURL=OFF \
             -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
