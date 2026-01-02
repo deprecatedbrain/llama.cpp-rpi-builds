@@ -1,0 +1,91 @@
+name: Raspberry Pi LLaMA.cpp Build
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+env:
+  UPSTREAM_REPO: ggerganov/llama.cpp
+  TARGET_ARCH: aarch64-linux-gnu
+
+jobs:
+  check-updates:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      release_tag: ${{ steps.check.outputs.release_tag }}
+    steps:
+      - name: Check for new upstream release
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LATEST_TAG=$(gh api repos/$UPSTREAM_REPO/releases/latest --jq .tag_name)
+          echo "Latest upstream tag: $LATEST_TAG"
+          
+          LOCAL_RELEASE=$(gh release view "$LATEST_TAG" --json tagName --jq .tagName || echo "none")
+          
+          if [ "$LOCAL_RELEASE" = "$LATEST_TAG" ]; then
+            echo "Release $LATEST_TAG already exists. Skipping."
+            echo "should_build=false" >> $GITHUB_OUTPUT
+          else
+            echo "New release found: $LATEST_TAG. Proceeding to build."
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "release_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+          fi
+
+  build-and-release:
+    needs: check-updates
+    if: needs.check-updates.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Install ARM64 Cross-Compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu build-essential cmake
+
+      - name: Checkout Upstream LLaMA.cpp
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ needs.check-updates.outputs.release_tag }}
+          submodules: recursive
+
+      - name: Configure CMake (Cross-Compile)
+        run: |
+          mkdir build
+          cd build
+          
+          cmake .. \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DGGML_NATIVE=OFF \
+            -DGGML_OPENMP=ON \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: |
+          cd build
+          # Build standard targets
+          cmake --build . --config Release -j $(nproc) --target llama-cli llama-server llama-quantize
+
+      - name: Package Artifacts
+        run: |
+          cd build/bin
+          tar -czvf llama-rpi-aarch64.tar.gz *
+          mv llama-rpi-aarch64.tar.gz ../../
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ needs.check-updates.outputs.release_tag }}" \
+            ./llama-rpi-aarch64.tar.gz \
+            --title "RPi Build ${{ needs.check-updates.outputs.release_tag }}" \
+            --notes "Automated build for Raspberry Pi (AArch64) based on upstream release ${{ needs.check-updates.outputs.release_tag }}."
