@@ -45,14 +45,8 @@ jobs:
     steps:
       - name: Install ARM64 Cross-Compiler
         run: |
-          sudo dpkg --add-architecture arm64
           sudo apt-get update
-          sudo apt-get install -y \
-            gcc-aarch64-linux-gnu \
-            g++-aarch64-linux-gnu \
-            build-essential \
-            cmake \
-            libcurl4-openssl-dev:arm64
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu build-essential cmake
 
       - name: Checkout Upstream LLaMA.cpp
         uses: actions/checkout@v4
